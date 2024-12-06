@@ -1,7 +1,6 @@
 {
   "name": "hello-overlay-backend",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Basic HelloWorld BSV Blockchain Application Backend",
   "module": "dist/esm/mod.js",
