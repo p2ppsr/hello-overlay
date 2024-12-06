@@ -1,9 +1,9 @@
 {
-  "name": "@bsv/backend",
+  "name": "hello-overlay-backend",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "BSV Blockchain Application Backend",
+  "description": "Basic HelloWorld BSV Blockchain Application Backend",
   "module": "dist/esm/mod.js",
   "types": "dist/types/mod.d.ts",
   "files": [
