@@ -5,6 +5,7 @@ import App from './App'
 import web3Theme from './theme'
 import { ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
+import React from 'react'
 
 const rootElement = document.getElementById('root')
 

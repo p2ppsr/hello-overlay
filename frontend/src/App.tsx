@@ -1,406 +1,325 @@
-import React, { useState, useEffect, type FormEvent } from 'react'
-import { ToastContainer, toast } from 'react-toastify'
-import 'react-toastify/dist/ReactToastify.css'
+import React, { useState, useEffect, useCallback, FormEvent } from 'react'
 import {
-  AppBar, Toolbar, Dialog,
-  DialogTitle, DialogContent, DialogContentText, DialogActions, TextField,
-  Button, Fab, LinearProgress, Typography, IconButton, Grid, MenuItem, Select, InputLabel, FormControl, Card, CardContent
+  AppBar, Toolbar, Typography, IconButton, Grid, TextField, Button, FormControl,
+  InputLabel, Select, MenuItem, Fab, Dialog, DialogTitle, DialogContent, DialogContentText,
+  DialogActions, LinearProgress, Card, CardContent
 } from '@mui/material'
 import { styled } from '@mui/system'
 import AddIcon from '@mui/icons-material/Add'
 import GitHubIcon from '@mui/icons-material/GitHub'
-import pushdrop from 'pushdrop'
+import { ToastContainer, toast } from 'react-toastify'
+import 'react-toastify/dist/ReactToastify.css'
+
 import {
-  createAction, CreateActionParams,
-  EnvelopeEvidenceApi,
-  toBEEFfromEnvelope
-} from '@babbage/sdk-ts'
-import { BEEF, HTTPSOverlayLookupFacilitator, LookupResolver, LookupResolverConfig, SHIPBroadcaster, SHIPBroadcasterConfig, Transaction } from '@bsv/sdk'
+  WalletClient,
+  PushDrop,
+  LookupResolver,
+  Transaction,
+  LookupResolverConfig,
+  Utils,
+  TopicBroadcaster
+} from '@bsv/sdk'
 
-const AppBarPlaceholder = styled('div')({
-  height: '4em'
-})
-
-const NoItems = styled(Grid)({
-  margin: 'auto',
-  textAlign: 'center',
-  marginTop: '5em'
-})
-
-const AddMoreFab = styled(Fab)({
-  position: 'fixed',
-  right: '1em',
-  bottom: '1em',
-  zIndex: 10
-})
-
-const LoadingBar = styled(LinearProgress)({
-  margin: '1em'
-})
-
-const GitHubIconStyle = styled(IconButton)({
-  color: '#ffffff'
-})
+/* -------------------------------------------------------------------------- */
+/*                                   Styled                                   */
+/* -------------------------------------------------------------------------- */
+const Root = styled('div')({})
+const AppBarSpacer = styled('div')({ height: '4em' })
+const MessagesGrid = styled(Grid)({ padding: '1em' })
+const LoadingBar = styled(LinearProgress)({ margin: '1em' })
+const AddMoreFab = styled(Fab)({ position: 'fixed', right: '1em', bottom: '1em', zIndex: 10 })
+const NoItems = styled(Grid)({ margin: 'auto', textAlign: 'center', marginTop: '5em' })
 
 const MessageCard = styled(Card)({
   margin: '0.5em',
   padding: '1em',
-  minWidth: '200px',
-  maxWidth: '300px',
+  minWidth: 200,
+  maxWidth: 300,
   wordBreak: 'break-word'
 })
 
-interface Token {
+/* -------------------------------------------------------------------------- */
+/*                                    Types                                   */
+/* -------------------------------------------------------------------------- */
+interface TokenRef {
   txid: string
   outputIndex: number
   lockingScript: string
 }
-
-interface HelloWorldToken {
+interface HelloWorldMessage {
   message: string
   sats: number
-  token: Token
+  token: TokenRef
 }
 
-const App: React.FC = () => {
-  const [createOpen, setCreateOpen] = useState<boolean>(false)
-  const [createMessage, setCreateMessage] = useState<string>('')
-  const [createLoading, setCreateLoading] = useState<boolean>(false)
-  const [helloWorldTokensLoading, setHelloWorldTokensLoading] = useState<boolean>(false)
-  const [helloWorldTokens, setHelloWorldTokens] = useState<HelloWorldToken[]>([])
-  const [page, setPage] = useState<number>(0)
-  const [hasMore, setHasMore] = useState<boolean>(true)
+/* -------------------------------------------------------------------------- */
+/*                                  Constants                                 */
+/* -------------------------------------------------------------------------- */
+const PAGE_LIMIT = 25
+const LOOKUP_CONFIG: LookupResolverConfig = {
+  slapTrackers: ['http://localhost:8080']
+}
 
-  // New state variables for the lookup queries
-  const [searchMessage, setSearchMessage] = useState<string>('')
-  const [startDate, setStartDate] = useState<string>('')
-  const [endDate, setEndDate] = useState<string>('')
+/* -------------------------------------------------------------------------- */
+/*                                  Component                                 */
+/* -------------------------------------------------------------------------- */
+const HelloWorldApp: React.FC = () => {
+  /* ------------------------------ Form state ------------------------------ */
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createMessage, setCreateMessage] = useState('')
+  const [createLoading, setCreateLoading] = useState(false)
+
+  /* --------------------------- Pagination state --------------------------- */
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(true)
+
+  /* --------------------------- Messages state ---------------------------- */
+  const [loading, setLoading] = useState(false)
+  const [messages, setMessages] = useState<HelloWorldMessage[]>([])
+
+  /* ----------------------------- Query state ----------------------------- */
+  const [queryMessage, setQueryMessage] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
-  const hostingURL = 'https://overlay-example.babbage.systems'
-  const limit = 25
+  /* ---------------------------------------------------------------------- */
+  /*                               Handlers                                  */
+  /* ---------------------------------------------------------------------- */
+  const resetPagination = () => {
+    setMessages([])
+    setPage(0)
+    setHasMore(true)
+  }
 
-  // Function to create a new HelloWorld token
-  const handleCreateSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault()
-    try {
-      if (createMessage === '') {
-        toast.error('Enter a message to broadcast!')
-        return
+  const buildLookupQuery = () => {
+    const query: Record<string, unknown> = {
+      limit: PAGE_LIMIT,
+      skip: page * PAGE_LIMIT,
+      sortOrder
+    }
+    if (queryMessage.trim()) query.message = queryMessage.trim()
+    if (startDate) query.startDate = `${startDate}T00:00:00.000Z`
+    if (endDate) query.endDate = `${endDate}T23:59:59.999Z`
+    return query
+  }
+
+  const fetchMessages = useCallback(
+    async (reset = false) => {
+      if (!hasMore && !reset) return
+      if (reset) resetPagination()
+      setLoading(true)
+      try {
+        const resolver = new LookupResolver(LOOKUP_CONFIG)
+        const answer = await resolver.query(
+          { service: 'ls_helloworld', query: buildLookupQuery() },
+          10000 // 10‑second timeout
+        )
+
+        if (answer.type !== 'output-list') {
+          setHasMore(false)
+          return
+        }
+
+        const fetched = await Promise.all(
+          answer.outputs.map(async o => {
+            const tx = Transaction.fromBEEF(o.beef)
+            const decoded = PushDrop.decode(tx.outputs[o.outputIndex].lockingScript)
+            return {
+              message: Utils.toUTF8(decoded.fields[0]),
+              sats: tx.outputs[o.outputIndex].satoshis ?? 0,
+              token: {
+                txid: tx.id('hex'),
+                outputIndex: o.outputIndex,
+                lockingScript: tx.outputs[o.outputIndex].lockingScript.toHex()
+              }
+            } as HelloWorldMessage
+          })
+        )
+
+        setMessages(prev => (reset ? fetched : [...prev, ...fetched]))
+        if (fetched.length < PAGE_LIMIT) setHasMore(false)
+      } catch (err: any) {
+        toast.error(`Failed to load messages: ${err.message}`)
+        setHasMore(false)
+      } finally {
+        setLoading(false)
       }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [page, sortOrder, queryMessage, startDate, endDate]
+  )
 
+  const handleBroadcast = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!createMessage.trim()) {
+      toast.error('Enter a message to broadcast!')
+      return
+    }
+    try {
       setCreateLoading(true)
+      const wallet = new WalletClient()
 
-      const bitcoinOutputScript = await pushdrop.create({
-        fields: [
-          Buffer.from(createMessage)
-        ],
-        protocolID: 'helloworld',
-        keyID: '1'
+      /* ---------------------- Build PushDrop ----------------------- */
+      const lockingScript = await new PushDrop(wallet).lock(
+        [Utils.toArray(createMessage)],
+        [1, 'helloworld'],
+        '1',
+        'anyone',
+        true
+      )
+
+      const { tx, txid } = await wallet.createAction({
+        outputs: [{
+          satoshis: Number(1000),
+          lockingScript: lockingScript.toHex(),
+          outputDescription: 'New HelloWorld message'
+        }],
+        options: {
+          acceptDelayedBroadcast: false,
+          randomizeOutputs: false
+        },
+        description: `Create a HelloWorld token`
       })
 
-      const args: CreateActionParams = {
-        outputs: [{
-          satoshis: 1, // Minimum amount
-          script: bitcoinOutputScript,
-          description: 'New HelloWorld item'
-        }],
-        description: 'Create a HelloWorld token',
-        log: '',
-        options: {
-          resultFormat: 'beef'
-        }
+      if (!tx || !txid) {
+        throw new Error('Failed to create transaction')
       }
 
-      const newToken = await createAction(args)
-      const { beef } = toBEEFfromEnvelope(newToken as EnvelopeEvidenceApi)
+      const broadcaster = new TopicBroadcaster(['tm_identity'], {
+        networkPreset: (await (wallet.getNetwork())).network
+      })
+      await broadcaster.broadcast(Transaction.fromAtomicBEEF(tx))
 
-      const result = await Transaction.fromBEEF(beef).broadcast(new SHIPBroadcaster(['tm_helloworld']))
-      console.log(result)
-
-      toast.dark('Message successfully broadcasted!')
-      const tx = Transaction.fromBEEF(beef)
-      const txid = tx.id('hex')
-      setHelloWorldTokens((originalTokens) => ([
+      toast.success('Message broadcasted!')
+      // Optimistically insert message at top of list
+      setMessages(prev => [
         {
           message: createMessage,
           sats: 1,
-          token: {
-            txid,
-            outputIndex: 0,
-            lockingScript: tx.outputs[0].lockingScript.toHex()
-          }
+          token: { txid, outputIndex: 0, lockingScript: lockingScript.toHex?.() ?? lockingScript.toString('hex') }
         },
-        ...originalTokens
-      ]))
+        ...prev
+      ])
       setCreateMessage('')
       setCreateOpen(false)
-    } catch (e) {
-      toast.error((e as Error).message)
-      console.error(e)
+    } catch (err: any) {
+      toast.error(`Broadcast failed: ${err.message}`)
     } finally {
       setCreateLoading(false)
     }
   }
 
-  // Function to fetch messages from the hosting URL with pagination and lookup queries
-  const fetchHelloWorldTokens = async (reset = false) => {
-    if (reset) {
-      setHelloWorldTokens([])
-      setPage(0)
-      setHasMore(true)
-    }
-    if (!hasMore && !reset) {
-      return
-    }
-    setHelloWorldTokensLoading(true)
-
-    try {
-      const query: any = {
-        limit,
-        skip: reset ? 0 : page * limit,
-        sortOrder
-      }
-
-      if (searchMessage.trim() !== '') {
-        query.message = searchMessage.trim()
-      }
-      if (startDate) {
-        query.startDate = `${startDate}T00:00:00.000Z`
-      }
-      if (endDate) {
-        query.endDate = `${endDate}T23:59:59.999Z`
-      }
-
-      const config: LookupResolverConfig = {
-        slapTrackers: ['http://localhost:8080']
-      }
-      const lookupAnswer = await new LookupResolver(config).query({
-        service: 'ls_helloworld',
-        query
-      }, 10000)
-
-      if (lookupAnswer.type === 'output-list') {
-        const tokensFromLookup = await Promise.all(lookupAnswer.outputs.map(async (output: any) => {
-          const tx = Transaction.fromBEEF(output.beef)
-
-          const result = pushdrop.decode({
-            script: tx.outputs[output.outputIndex].lockingScript.toHex(),
-            fieldFormat: 'buffer'
-          })
-
-          const helloMessage = result.fields[0].toString('utf8')
-
-          return {
-            message: helloMessage,
-            sats: tx.outputs[output.outputIndex].satoshis ?? 0,
-            token: {
-              txid: tx.id('hex'),
-              outputIndex: output.outputIndex,
-              lockingScript: tx.outputs[output.outputIndex].lockingScript.toHex()
-            }
-          } as HelloWorldToken
-        }))
-
-        setHelloWorldTokens(prevTokens => reset ? tokensFromLookup : [...prevTokens, ...tokensFromLookup])
-        if (tokensFromLookup.length < limit) {
-          setHasMore(false)
-        }
-      } else {
-        setHasMore(false)
-      }
-    } catch (e) {
-      toast.error(`Failed to load messages! Error: ${(e as Error).message}`)
-      console.error(e)
-    } finally {
-      setHelloWorldTokensLoading(false)
-    }
-  }
-
-  // Fetch helloWorldTokens when the component mounts and when the page changes
+  /* ---------------------------------------------------------------------- */
+  /*                               Effects                                   */
+  /* ---------------------------------------------------------------------- */
   useEffect(() => {
-    fetchHelloWorldTokens()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page])
+    fetchMessages()
+  }, [page, fetchMessages])
 
-  // Handle search form submission
-  const handleSearchSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    fetchHelloWorldTokens(true)
-  }
-
+  /* ---------------------------------------------------------------------- */
+  /*                               Render                                    */
+  /* ---------------------------------------------------------------------- */
   return (
-    <>
-      <ToastContainer
-        position='top-right'
-        autoClose={5000}
-        hideProgressBar={false}
-        newestOnTop={false}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-      />
-      <AppBar
-        position="static"
-        sx={{
-          background: 'linear-gradient(45deg,  #4446c7 30%, #00d1b2 90%)', // Match theme's primary and secondary colors
-          padding: '0.5em'
-        }}
-      >
+    <Root>
+      {/* Notifications */}
+      <ToastContainer position='top-right' autoClose={4000} pauseOnFocusLoss draggable pauseOnHover />
+
+      {/* AppBar */}
+      <AppBar position='static' sx={{ background: 'linear-gradient(45deg,#4446c7 30%,#00d1b2 90%)' }}>
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            HelloWorld Postboard
-          </Typography>
-          <GitHubIconStyle
-            onClick={() => window.open('https://github.com/p2ppsr/overlay-demo-ui', '_blank')}
-          >
+          <Typography variant='h6' sx={{ flexGrow: 1 }}>HelloWorld Postboard</Typography>
+          <IconButton color='inherit' onClick={() => window.open('https://github.com/p2ppsr/overlay-demo-ui', '_blank')}>
             <GitHubIcon />
-          </GitHubIconStyle>
+          </IconButton>
         </Toolbar>
       </AppBar>
+      <AppBarSpacer />
 
-      <AppBarPlaceholder />
-
-      <Grid container spacing={2} sx={{ padding: '1em' }} component='form' onSubmit={handleSearchSubmit}>
+      {/* Search form */}
+      <Grid container spacing={2} component='form' onSubmit={(e: { preventDefault: () => void }) => { e.preventDefault(); fetchMessages(true) }} sx={{ p: 2 }}>
         <Grid item xs={12} sm={4}>
-          <TextField
-            label='Search Message'
-            fullWidth
-            value={searchMessage}
-            onChange={(e: { target: { value: React.SetStateAction<string> } }) => setSearchMessage(e.target.value)}
-          />
+          <TextField label='Search Message' fullWidth value={queryMessage} onChange={(e: { target: { value: React.SetStateAction<string> } }) => setQueryMessage(e.target.value)} />
         </Grid>
         <Grid item xs={6} sm={2}>
-          <TextField
-            label='Start Date'
-            type='date'
-            fullWidth
-            InputLabelProps={{
-              shrink: true,
-            }}
-            value={startDate}
-            onChange={(e: { target: { value: React.SetStateAction<string> } }) => setStartDate(e.target.value)}
-          />
+          <TextField type='date' label='Start Date' fullWidth InputLabelProps={{ shrink: true }} value={startDate} onChange={(e: { target: { value: React.SetStateAction<string> } }) => setStartDate(e.target.value)} />
         </Grid>
         <Grid item xs={6} sm={2}>
-          <TextField
-            label='End Date'
-            type='date'
-            fullWidth
-            InputLabelProps={{
-              shrink: true,
-            }}
-            value={endDate}
-            onChange={(e: { target: { value: React.SetStateAction<string> } }) => setEndDate(e.target.value)}
-          />
+          <TextField type='date' label='End Date' fullWidth InputLabelProps={{ shrink: true }} value={endDate} onChange={(e: { target: { value: React.SetStateAction<string> } }) => setEndDate(e.target.value)} />
         </Grid>
         <Grid item xs={6} sm={2}>
           <FormControl fullWidth>
             <InputLabel id='sort-order-label'>Sort Order</InputLabel>
-            <Select
-              labelId='sort-order-label'
-              label='Sort Order'
-              value={sortOrder}
-              onChange={(e: { target: { value: string } }) => setSortOrder(e.target.value as 'asc' | 'desc')}
-            >
+            <Select labelId='sort-order-label' label='Sort Order' value={sortOrder} onChange={(e: { target: { value: string } }) => setSortOrder(e.target.value as 'asc' | 'desc')}>
               <MenuItem value='desc'>Newest First</MenuItem>
               <MenuItem value='asc'>Oldest First</MenuItem>
             </Select>
           </FormControl>
         </Grid>
         <Grid item xs={6} sm={2} alignSelf='center'>
-          <Button type='submit' variant='contained' fullWidth>
-            Search
-          </Button>
+          <Button type='submit' variant='contained' fullWidth>Search</Button>
         </Grid>
       </Grid>
 
-      <Grid container justifyContent='center' sx={{ padding: '1em' }}>
-        {helloWorldTokens.length >= 1 && (
-          <AddMoreFab color='primary' onClick={() => { setCreateOpen(true) }}>
-            <AddIcon />
-          </AddMoreFab>
-        )}
+      {/* Messages */}
+      <MessagesGrid container spacing={2} justifyContent='center'>
+        {messages.map((m, idx) => (
+          <Grid item key={idx}>
+            <MessageCard>
+              <CardContent>
+                <Typography variant='body1'>{m.message}</Typography>
+              </CardContent>
+            </MessageCard>
+          </Grid>
+        ))}
+      </MessagesGrid>
 
-        {helloWorldTokens.length === 0 && !helloWorldTokensLoading && (
-          <NoItems container direction='column' justifyContent='center' alignItems='center'>
-            <Grid item align='center'>
-              <Typography variant='h4'>No Messages</Typography>
-              <Typography color='textSecondary'>
-                Use the button below to broadcast a message
-              </Typography>
-            </Grid>
-            <Grid item align='center' sx={{ paddingTop: '2.5em', marginBottom: '1em' }}>
-              <Fab color='primary' onClick={() => { setCreateOpen(true) }}>
-                <AddIcon />
-              </Fab>
-            </Grid>
-          </NoItems>
-        )}
-
-        <Grid container spacing={2} justifyContent='center'>
-          {helloWorldTokens.map((x, i) => (
-            <Grid item key={i}>
-              <MessageCard>
-                <CardContent>
-                  <Typography variant='body1'>{x.message}</Typography>
-                </CardContent>
-              </MessageCard>
-            </Grid>
-          ))}
-        </Grid>
-      </Grid>
-      {helloWorldTokensLoading && (
-        <LoadingBar />
+      {/* Empty state */}
+      {messages.length === 0 && !loading && (
+        <NoItems container direction='column' alignItems='center'>
+          <Typography variant='h4'>No Messages</Typography>
+          <Typography color='textSecondary'>Use the button below to broadcast a message</Typography>
+          <Fab color='primary' sx={{ mt: 3 }} onClick={() => setCreateOpen(true)}><AddIcon /></Fab>
+        </NoItems>
       )}
-      {!helloWorldTokensLoading && hasMore && (
-        <Grid container justifyContent='center' sx={{ marginTop: '1em', marginBottom: '1em' }}>
-          <Button variant='contained' onClick={() => setPage(prevPage => prevPage + 1)}>
-            Load More
-          </Button>
+
+      {/* Pagination */}
+      {loading && <LoadingBar />}
+      {!loading && hasMore && (
+        <Grid container justifyContent='center' sx={{ my: 2 }}>
+          <Button variant='contained' onClick={() => setPage(p => p + 1)}>Load More</Button>
         </Grid>
       )}
 
-      <Dialog open={createOpen} onClose={() => { setCreateOpen(false) }}>
-        <form onSubmit={(e) => {
-          e.preventDefault()
-          void (async () => {
-            try {
-              await handleCreateSubmit(e)
-            } catch (error) {
-              console.error('Error in form submission:', error)
-            }
-          })()
-        }}>
+      {/* Global FAB when list is non‑empty */}
+      {messages.length > 0 && <AddMoreFab color='primary' onClick={() => setCreateOpen(true)}><AddIcon /></AddMoreFab>}
+
+      {/* Broadcast dialog */}
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth='sm'>
+        <form onSubmit={handleBroadcast}>
           <DialogTitle>Broadcast a Message</DialogTitle>
           <DialogContent>
-            <DialogContentText paragraph>
-              Enter your message to be broadcasted on the blockchain.
-            </DialogContentText>
+            <DialogContentText>Enter the message you wish to broadcast to the blockchain.</DialogContentText>
             <TextField
-              multiline rows={3} fullWidth autoFocus
-              label='Message'
-              onChange={(e: { target: { value: React.SetStateAction<string> } }) => { setCreateMessage(e.target.value) }}
+              autoFocus multiline fullWidth rows={3} label='Message'
               value={createMessage}
+              onChange={(e: { target: { value: React.SetStateAction<string> } }) => setCreateMessage(e.target.value)}
               inputProps={{ maxLength: 280 }}
               helperText={`${createMessage.length}/280`}
             />
           </DialogContent>
-          {createLoading
-            ? (<LoadingBar />)
-            : (
-              <DialogActions>
-                <Button onClick={() => { setCreateOpen(false) }}>Cancel</Button>
-                <Button type='submit'>Broadcast</Button>
-              </DialogActions>
-            )
-          }
+          {createLoading ? (
+            <LoadingBar />
+          ) : (
+            <DialogActions>
+              <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
+              <Button type='submit' variant='contained'>Broadcast</Button>
+            </DialogActions>
+          )}
         </form>
       </Dialog>
-    </>
+    </Root>
   )
 }
 
-export default App
+export default HelloWorldApp

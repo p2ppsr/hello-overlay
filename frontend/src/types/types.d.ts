@@ -1,5 +1,4 @@
 declare module 'react-toastify'
-declare module '@babbage/sdk-ts'
 
 // Interfaces used, it is necessary to declare them here
 export interface Token {
