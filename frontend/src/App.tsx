@@ -56,9 +56,6 @@ interface HelloWorldMessage {
 /*                                  Constants                                 */
 /* -------------------------------------------------------------------------- */
 const PAGE_LIMIT = 25
-const LOOKUP_CONFIG: LookupResolverConfig = {
-  slapTrackers: ['http://localhost:8080']
-}
 
 /* -------------------------------------------------------------------------- */
 /*                                  Component                                 */
@@ -82,6 +79,8 @@ const HelloWorldApp: React.FC = () => {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+
+  const wallet = new WalletClient()
 
   /* ---------------------------------------------------------------------- */
   /*                               Handlers                                  */
@@ -110,7 +109,9 @@ const HelloWorldApp: React.FC = () => {
       if (reset) resetPagination()
       setLoading(true)
       try {
-        const resolver = new LookupResolver(LOOKUP_CONFIG)
+        const resolver = new LookupResolver({
+          networkPreset: (await (wallet.getNetwork())).network
+        })
         const answer = await resolver.query(
           { service: 'ls_helloworld', query: buildLookupQuery() },
           10000 // 10‑second timeout
@@ -158,12 +159,11 @@ const HelloWorldApp: React.FC = () => {
     }
     try {
       setCreateLoading(true)
-      const wallet = new WalletClient()
 
       /* ---------------------- Build PushDrop ----------------------- */
       const lockingScript = await new PushDrop(wallet).lock(
         [Utils.toArray(createMessage)],
-        [1, 'helloworld'],
+        [1, 'HelloWorld'],
         '1',
         'anyone',
         true
@@ -171,13 +171,14 @@ const HelloWorldApp: React.FC = () => {
 
       const { tx, txid } = await wallet.createAction({
         outputs: [{
-          satoshis: Number(1000),
+          satoshis: 1,
           lockingScript: lockingScript.toHex(),
           outputDescription: 'New HelloWorld message'
         }],
         options: {
           acceptDelayedBroadcast: false,
-          randomizeOutputs: false
+          randomizeOutputs: false,
+          // noSend: true
         },
         description: `Create a HelloWorld token`
       })
@@ -186,8 +187,8 @@ const HelloWorldApp: React.FC = () => {
         throw new Error('Failed to create transaction')
       }
 
-      const broadcaster = new TopicBroadcaster(['tm_identity'], {
-        networkPreset: (await (wallet.getNetwork())).network
+      const broadcaster = new TopicBroadcaster(['tm_helloworld'], {
+        networkPreset: (await wallet.getNetwork()).network
       })
       await broadcaster.broadcast(Transaction.fromAtomicBEEF(tx))
 
@@ -197,7 +198,7 @@ const HelloWorldApp: React.FC = () => {
         {
           message: createMessage,
           sats: 1,
-          token: { txid, outputIndex: 0, lockingScript: lockingScript.toHex?.() ?? lockingScript.toString('hex') }
+          token: { txid, outputIndex: 0, lockingScript: lockingScript.toHex() }
         },
         ...prev
       ])

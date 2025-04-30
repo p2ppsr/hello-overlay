@@ -48,7 +48,7 @@ export class HelloWorldLookupService implements LookupService {
     try {
       // Decode the PushDrop token
       const result = PushDrop.decode(outputScript)
-      if (!result.fields || result.fields.length >= 1) throw new Error('Invalid HelloWorld token: wrong field count')
+      if (!result.fields || result.fields.length < 1) throw new Error('Invalid HelloWorld token: wrong field count')
 
       const message = Utils.toUTF8(result.fields[0])
       if (message.length < 2) throw new Error('Invalid HelloWorld token: message too short')

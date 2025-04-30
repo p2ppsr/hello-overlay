@@ -50,13 +50,10 @@ export default class HelloWorldTopicManager implements TopicManager {
           if (!result.lockingPublicKey || !signature) continue
 
           const data = result.fields.reduce((a, e) => [...a, ...e], [])
-          const { valid: hasValidSignature } = await new ProtoWallet('anyone').verifySignature({
+          const hasValidSignature = await result.lockingPublicKey.verify(
             data,
-            signature,
-            counterparty: result.lockingPublicKey.toString(),
-            protocolID: [1, 'HelloWorld'],
-            keyID: '1'
-          })
+            Signature.fromDER(signature)
+          )
           if (!hasValidSignature) throw new Error('Invalid signature!')
           outputsToAdmit.push(index)
         } catch (err) {
