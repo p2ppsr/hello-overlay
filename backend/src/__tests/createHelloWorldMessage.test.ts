@@ -1,4 +1,4 @@
-import { createHelloWorldMessage } from './createHelloWorldMessage'
+import { createHelloWorldMessage } from './createHelloWorldMessage.js'
 
 /**
  * Requirements to run these example tests:

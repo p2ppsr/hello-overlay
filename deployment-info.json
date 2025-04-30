@@ -1,18 +1,29 @@
 {
-    "schema": "bsv-app",
-    "schemaVersion": "1.0",
-    "topicManagers": {
-        "tm_helloworld": "./backend/src/topic-managers/HelloWorldTopicManager.ts"
-    },
-    "lookupServices": {
-        "ls_helloworld": {
-            "serviceFactory": "./backend/src/lookup-services/HelloWorldLookupServiceFactory.ts",
-            "hydrateWith": "mongo"
-        }
-    },
-    "frontend": {
-        "language": "react",
-        "sourceDirectory": "./frontend"
-    },
-    "contracts": {}
+  "schema": "bsv-app",
+  "schemaVersion": "1.0",
+  "topicManagers": {
+    "tm_helloworld": "./backend/src/topic-managers/HelloWorldTopicManager.ts"
+  },
+  "lookupServices": {
+    "ls_helloworld": {
+      "serviceFactory": "./backend/src/lookup-services/HelloWorldLookupServiceFactory.ts",
+      "hydrateWith": "mongo"
+    }
+  },
+  "frontend": {
+    "language": "react",
+    "sourceDirectory": "./frontend"
+  },
+  "contracts": {},
+  "configs": [
+    {
+      "name": "Local LARS",
+      "network": "mainnet",
+      "provider": "LARS",
+      "run": [
+        "backend",
+        "frontend"
+      ]
+    }
+  ]
 }

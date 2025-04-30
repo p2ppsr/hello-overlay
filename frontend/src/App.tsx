@@ -15,7 +15,7 @@ import {
   EnvelopeEvidenceApi,
   toBEEFfromEnvelope
 } from '@babbage/sdk-ts'
-import { BEEF, LookupResolver, LookupResolverConfig, SHIPBroadcaster, SHIPBroadcasterConfig, Transaction } from '@bsv/sdk'
+import { BEEF, HTTPSOverlayLookupFacilitator, LookupResolver, LookupResolverConfig, SHIPBroadcaster, SHIPBroadcasterConfig, Transaction } from '@bsv/sdk'
 
 const AppBarPlaceholder = styled('div')({
   height: '4em'
@@ -172,7 +172,10 @@ const App: React.FC = () => {
         query.endDate = `${endDate}T23:59:59.999Z`
       }
 
-      const lookupAnswer = await new LookupResolver().query({
+      const config: LookupResolverConfig = {
+        slapTrackers: ['http://localhost:8080']
+      }
+      const lookupAnswer = await new LookupResolver(config).query({
         service: 'ls_helloworld',
         query
       }, 10000)

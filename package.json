@@ -9,10 +9,13 @@
     "start": "node ./scripts/start.js"
   },
   "dependencies": {
-    "@bsv/lars": "^1.0.5",
     "wait-on": "^8.0.1"
   },
   "keywords": [],
   "author": "",
-  "license": "SEE LICENSE IN LICENSE.txt"
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "devDependencies": {
+    "@bsv/cars-cli": "^1.2.2",
+    "@bsv/lars": "^1.4.1"
+  }
 }

@@ -49,29 +49,38 @@ export class HelloWorldStorage {
 
   /**
    * Finds HelloWorld records containing the specified message (case-insensitive).
-   * Uses a full-text search index for efficient matching.
-   * @param {string} message - The partial or full message to search for
-   * @param {number} [limit=50] - The maximum number of results to return
-   * @param {number} [skip=0] - The number of results to skip (for pagination)
-   * @returns {Promise<UTXOReference[]>} - Resolves with an array of UTXO references
+   * Uses the collection’s full-text index for efficient matching.
+   *
+   * @param message       Partial or full message to search for
+   * @param limit         Max number of results to return (default = 50)
+   * @param skip          Number of results to skip for pagination (default = 0)
+   * @param sortOrder     'asc' | 'desc' – sort by createdAt (default = 'desc')
    */
-  async findByMessage(message: string, limit = 50, skip = 0): Promise<UTXOReference[]> {
-    if (!message) {
-      return []
-    }
+  async findByMessage(
+    message: string,
+    limit: number = 50,
+    skip: number = 0,
+    sortOrder: 'asc' | 'desc' = 'desc'
+  ): Promise<UTXOReference[]> {
+    if (!message) return []
 
-    return await this.records
-      .find({ $text: { $search: message } }) // Use the text index for search
-      .sort({ createdAt: -1 })
+    // Map text value → numeric MongoDB sort direction
+    const direction = sortOrder === 'asc' ? 1 : -1
+
+    return this.records
+      .find(
+        { $text: { $search: message } },
+        { projection: { txid: 1, outputIndex: 1, createdAt: 1 } }
+      )
+      .sort({ createdAt: direction })
       .skip(skip)
       .limit(limit)
-      .project<UTXOReference>({ txid: 1, outputIndex: 1 })
       .toArray()
-      .then((results) =>
-        results.map((record) => ({
-          txid: record.txid,
-          outputIndex: record.outputIndex,
-        })),
+      .then(results =>
+        results.map(r => ({
+          txid: r.txid,
+          outputIndex: r.outputIndex
+        }))
       )
   }
 

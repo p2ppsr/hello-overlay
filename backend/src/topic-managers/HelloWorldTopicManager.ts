@@ -1,60 +1,82 @@
 import { AdmittanceInstructions, TopicManager } from '@bsv/overlay'
-import { PublicKey, Signature, Transaction } from '@bsv/sdk'
-import pushdrop from 'pushdrop'
+import { PublicKey, Signature, Transaction, PushDrop, Utils, ProtoWallet } from '@bsv/sdk'
 import docs from './HelloWorldTopicDocs.js'
+
 /**
- *  Note: The PushDrop package is used to decode BRC-48 style Pay-to-Push-Drop tokens.
+ * Topic manager for the simple "Hello‑World" messaging protocol.
+ *
+ * Each valid output must satisfy the following rules:
+ *   1. It is a BRC‑48 Pay‑to‑Push‑Drop output (decoded with {@link PushDrop}).
+ *   2. The drop contains **exactly one** field – the UTF‑8 message.
+ *   3. The message is at least two characters long.
+ *   4. The signature inside the drop must verify against the locking public key
+ *      over the concatenated field data.
  */
 export default class HelloWorldTopicManager implements TopicManager {
   /**
-   * Identify if the outputs are admissible depending on the particular protocol requirements
-   * @param beef - The transaction data in BEEF format
-   * @param previousCoins - The previous coins to consider
-   * @returns A promise that resolves with the admittance instructions
+   * Identify which outputs in the supplied transaction are admissible.
+   *
+   * @param beef          Raw transaction encoded in BEEF format.
+   * @param previousCoins Previously‑retained coins (unused by this protocol).
    */
-  async identifyAdmissibleOutputs(beef: number[], previousCoins: number[]): Promise<AdmittanceInstructions> {
+  async identifyAdmissibleOutputs(
+    beef: number[],
+    previousCoins: number[]
+  ): Promise<AdmittanceInstructions> {
     const outputsToAdmit: number[] = []
+
     try {
-      const parsedTransaction = Transaction.fromBEEF(beef)
+      console.log('HelloWorld topic manager invoked')
+      const parsedTx = Transaction.fromBEEF(beef)
 
-      // Try to decode and validate transaction outputs
-      for (const [i, output] of parsedTransaction.outputs.entries()) {
+      if (!Array.isArray(parsedTx.outputs) || parsedTx.outputs.length === 0) {
+        throw new Error('Missing parameter: outputs')
+      }
+
+      // Inspect every output
+      for (const [index, output] of parsedTx.outputs.entries()) {
         try {
-          const result = pushdrop.decode({
-            script: output.lockingScript.toHex(),
-            fieldFormat: 'buffer'
+          const result = PushDrop.decode(output.lockingScript)
+          const signature = result.fields.pop()
+
+          // 1) Must contain exactly one field (not including the signature)
+          if (!result.fields || result.fields.length !== 1) continue
+
+          const message = Utils.toUTF8(result.fields[0])
+          // 2) Message must be at least two characters
+          if (message.length < 2) continue
+
+          // 3) Verify the signature against the locking public key
+          if (!result.lockingPublicKey || !signature) continue
+
+          const data = result.fields.reduce((a, e) => [...a, ...e], [])
+          const { valid: hasValidSignature } = await new ProtoWallet('anyone').verifySignature({
+            data,
+            signature,
+            counterparty: result.lockingPublicKey.toString(),
+            protocolID: [1, 'HelloWorld'],
+            keyID: '1'
           })
-
-          // Validate expected data according to the HelloWorld protocol
-          // 1. Must have 1 field
-          // 2. Must have a message greater than 2 characters
-          if (result.fields.length !== 1) continue
-
-          const helloWorldMessage = result.fields[0].toString('utf8')
-          if (helloWorldMessage.length < 2) continue
-
-          // Verify the signature
-          const pubKey = PublicKey.fromString(result.lockingPublicKey)
-          const hasValidSignature = pubKey.verify(
-            Array.from(Buffer.concat(result.fields)),
-            Signature.fromDER(result.signature, 'hex')
-          )
-
           if (!hasValidSignature) throw new Error('Invalid signature!')
-          outputsToAdmit.push(i)
-        } catch (error) {
-          console.error('Error processing output:', error)
-          // Continue processing other outputs
+          outputsToAdmit.push(index)
+        } catch (err) {
+          console.error(`Error processing output ${index}:`, err)
+          // Continue with next output
         }
       }
+
       if (outputsToAdmit.length === 0) {
-        console.warn('No outputs admitted!')
-        // throw new ERR_BAD_REQUEST('No outputs admitted!')
+        throw new Error('HelloWorld topic manager: no outputs admitted!')
       }
-    } catch (error) {
-      console.error('Error identifying admissible outputs:', error)
+
+      console.log(`Admitted ${outputsToAdmit.length} HelloWorld ${outputsToAdmit.length === 1 ? 'output' : 'outputs'}!`)
+    } catch (err) {
+      if (outputsToAdmit.length === 0 && (!previousCoins || previousCoins.length === 0)) {
+        console.error('Error identifying admissible outputs:', err)
+      }
     }
 
+    // The HelloWorld protocol never retains previous coins
     return {
       outputsToAdmit,
       coinsToRetain: []
@@ -72,7 +94,6 @@ export default class HelloWorldTopicManager implements TopicManager {
   /**
    * Get metadata about the topic manager
    * @returns A promise that resolves to an object containing metadata
-   * @throws An error indicating the method is not implemented
    */
   async getMetaData(): Promise<{
     name: string
@@ -83,7 +104,7 @@ export default class HelloWorldTopicManager implements TopicManager {
   }> {
     return {
       name: 'HelloWorld Topic Manager',
-      shortDescription: 'What\'s your message to the world?'
+      shortDescription: "What's your message to the world?"
     }
   }
 }

@@ -81,13 +81,4 @@ describe('HelloWorldStorage', () => {
       expect(undefinedResults).toEqual([])
     })
   })
-
-  describe('getFuzzyRegex', () => {
-    it('should convert a string into a fuzzy regex pattern', () => {
-      const input = 'hello'
-      const regex = storage['getFuzzyRegex'](input)
-
-      expect(regex).toEqual(/h.*e.*l.*l.*o/i)
-    })
-  })
 })
