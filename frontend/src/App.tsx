@@ -1,8 +1,25 @@
 import React, { useState, useEffect, useCallback, FormEvent } from 'react'
 import {
-  AppBar, Toolbar, Typography, IconButton, Grid, TextField, Button, FormControl,
-  InputLabel, Select, MenuItem, Fab, Dialog, DialogTitle, DialogContent, DialogContentText,
-  DialogActions, LinearProgress, Card, CardContent
+  AppBar,
+  Toolbar,
+  Typography,
+  IconButton,
+  Grid,
+  TextField,
+  Button,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Fab,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  LinearProgress,
+  Card,
+  CardContent
 } from '@mui/material'
 import { styled } from '@mui/system'
 import AddIcon from '@mui/icons-material/Add'
@@ -10,19 +27,9 @@ import GitHubIcon from '@mui/icons-material/GitHub'
 import { ToastContainer, toast } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 
-import {
-  WalletClient,
-  PushDrop,
-  LookupResolver,
-  Transaction,
-  LookupResolverConfig,
-  Utils,
-  TopicBroadcaster
-} from '@bsv/sdk'
+import { WalletClient } from '@bsv/sdk'
+import { createToken, queryTokens, HelloWorldToken } from 'hello-tokens'
 
-/* -------------------------------------------------------------------------- */
-/*                                   Styled                                   */
-/* -------------------------------------------------------------------------- */
 const Root = styled('div')({})
 const AppBarSpacer = styled('div')({ height: '4em' })
 const MessagesGrid = styled(Grid)({ padding: '1em' })
@@ -38,28 +45,8 @@ const MessageCard = styled(Card)({
   wordBreak: 'break-word'
 })
 
-/* -------------------------------------------------------------------------- */
-/*                                    Types                                   */
-/* -------------------------------------------------------------------------- */
-interface TokenRef {
-  txid: string
-  outputIndex: number
-  lockingScript: string
-}
-interface HelloWorldMessage {
-  message: string
-  sats: number
-  token: TokenRef
-}
-
-/* -------------------------------------------------------------------------- */
-/*                                  Constants                                 */
-/* -------------------------------------------------------------------------- */
 const PAGE_LIMIT = 25
 
-/* -------------------------------------------------------------------------- */
-/*                                  Component                                 */
-/* -------------------------------------------------------------------------- */
 const HelloWorldApp: React.FC = () => {
   /* ------------------------------ Form state ------------------------------ */
   const [createOpen, setCreateOpen] = useState(false)
@@ -72,7 +59,7 @@ const HelloWorldApp: React.FC = () => {
 
   /* --------------------------- Messages state ---------------------------- */
   const [loading, setLoading] = useState(false)
-  const [messages, setMessages] = useState<HelloWorldMessage[]>([])
+  const [messages, setMessages] = useState<HelloWorldToken[]>([])
 
   /* ----------------------------- Query state ----------------------------- */
   const [queryMessage, setQueryMessage] = useState('')
@@ -82,25 +69,22 @@ const HelloWorldApp: React.FC = () => {
 
   const wallet = new WalletClient()
 
-  /* ---------------------------------------------------------------------- */
-  /*                               Handlers                                  */
-  /* ---------------------------------------------------------------------- */
   const resetPagination = () => {
     setMessages([])
     setPage(0)
     setHasMore(true)
   }
 
-  const buildLookupQuery = () => {
-    const query: Record<string, unknown> = {
+  const buildQueryParams = () => {
+    const params: Parameters<typeof queryTokens>[0] = {
       limit: PAGE_LIMIT,
       skip: page * PAGE_LIMIT,
       sortOrder
     }
-    if (queryMessage.trim()) query.message = queryMessage.trim()
-    if (startDate) query.startDate = `${startDate}T00:00:00.000Z`
-    if (endDate) query.endDate = `${endDate}T23:59:59.999Z`
-    return query
+    if (queryMessage.trim()) params.message = queryMessage.trim()
+    if (startDate) params.startDate = startDate
+    if (endDate) params.endDate = endDate
+    return params
   }
 
   const fetchMessages = useCallback(
@@ -109,37 +93,10 @@ const HelloWorldApp: React.FC = () => {
       if (reset) resetPagination()
       setLoading(true)
       try {
-        const resolver = new LookupResolver({
-          networkPreset: (await (wallet.getNetwork())).network
-        })
-        const answer = await resolver.query(
-          { service: 'ls_helloworld', query: buildLookupQuery() },
-          10000 // 10‑second timeout
-        )
+        const tokens: HelloWorldToken[] = await queryTokens(buildQueryParams(), { wallet })
 
-        if (answer.type !== 'output-list') {
-          setHasMore(false)
-          return
-        }
-
-        const fetched = await Promise.all(
-          answer.outputs.map(async o => {
-            const tx = Transaction.fromBEEF(o.beef)
-            const decoded = PushDrop.decode(tx.outputs[o.outputIndex].lockingScript)
-            return {
-              message: Utils.toUTF8(decoded.fields[0]),
-              sats: tx.outputs[o.outputIndex].satoshis ?? 0,
-              token: {
-                txid: tx.id('hex'),
-                outputIndex: o.outputIndex,
-                lockingScript: tx.outputs[o.outputIndex].lockingScript.toHex()
-              }
-            } as HelloWorldMessage
-          })
-        )
-
-        setMessages(prev => (reset ? fetched : [...prev, ...fetched]))
-        if (fetched.length < PAGE_LIMIT) setHasMore(false)
+        setMessages(prev => (reset ? tokens : [...prev, ...tokens]))
+        if (tokens.length < PAGE_LIMIT) setHasMore(false)
       } catch (err: any) {
         toast.error(`Failed to load messages: ${err.message}`)
         setHasMore(false)
@@ -159,51 +116,12 @@ const HelloWorldApp: React.FC = () => {
     }
     try {
       setCreateLoading(true)
-
-      /* ---------------------- Build PushDrop ----------------------- */
-      const lockingScript = await new PushDrop(wallet).lock(
-        [Utils.toArray(createMessage)],
-        [1, 'HelloWorld'],
-        '1',
-        'anyone',
-        true
-      )
-
-      const { tx, txid } = await wallet.createAction({
-        outputs: [{
-          satoshis: 1,
-          lockingScript: lockingScript.toHex(),
-          outputDescription: 'New HelloWorld message'
-        }],
-        options: {
-          acceptDelayedBroadcast: false,
-          randomizeOutputs: false,
-          // noSend: true
-        },
-        description: `Create a HelloWorld token`
-      })
-
-      if (!tx || !txid) {
-        throw new Error('Failed to create transaction')
-      }
-
-      const broadcaster = new TopicBroadcaster(['tm_helloworld'], {
-        networkPreset: (await wallet.getNetwork()).network
-      })
-      await broadcaster.broadcast(Transaction.fromAtomicBEEF(tx))
-
+      await createToken(createMessage.trim())
       toast.success('Message broadcasted!')
-      // Optimistically insert message at top of list
-      setMessages(prev => [
-        {
-          message: createMessage,
-          sats: 1,
-          token: { txid, outputIndex: 0, lockingScript: lockingScript.toHex() }
-        },
-        ...prev
-      ])
       setCreateMessage('')
       setCreateOpen(false)
+      /* Re-query from the beginning so the new token appears */
+      fetchMessages(true)
     } catch (err: any) {
       toast.error(`Broadcast failed: ${err.message}`)
     } finally {
@@ -211,16 +129,11 @@ const HelloWorldApp: React.FC = () => {
     }
   }
 
-  /* ---------------------------------------------------------------------- */
-  /*                               Effects                                   */
-  /* ---------------------------------------------------------------------- */
   useEffect(() => {
     fetchMessages()
+    // Only on mount and when page or dependencies change
   }, [page, fetchMessages])
 
-  /* ---------------------------------------------------------------------- */
-  /*                               Render                                    */
-  /* ---------------------------------------------------------------------- */
   return (
     <Root>
       {/* Notifications */}
@@ -292,7 +205,7 @@ const HelloWorldApp: React.FC = () => {
         </Grid>
       )}
 
-      {/* Global FAB when list is non‑empty */}
+      {/* Global FAB when list is non-empty */}
       {messages.length > 0 && <AddMoreFab color='primary' onClick={() => setCreateOpen(true)}><AddIcon /></AddMoreFab>}
 
       {/* Broadcast dialog */}
@@ -323,4 +236,4 @@ const HelloWorldApp: React.FC = () => {
   )
 }
 
-export default HelloWorldApp
+export default HelloWorldApp;

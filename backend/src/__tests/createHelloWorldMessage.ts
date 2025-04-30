@@ -25,7 +25,7 @@ export const createHelloWorldMessage = async (message: string, hostingURL = 'htt
   // Create a new transaction
   const { tx } = await walletClient.createAction({
     outputs: [{
-      satoshis: Number(1000),
+      satoshis: 1,
       lockingScript: bitcoinOutputScript.toHex(),
       outputDescription: 'New HelloWorld message'
     }],
