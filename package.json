@@ -4,11 +4,12 @@
   "version": "1.0.0",
   "description": "Standard BSV project structure",
   "scripts": {
-    "backend": "lars start",
-    "frontend": "cd frontend && npm run start",
-    "start": "node ./scripts/start.js"
-  },
-  "dependencies": {
+   "lars": "lars",
+    "cars": "cars",
+    "lars:config": "lars config",
+    "start": "lars start",
+    "build": "cars build 1",
+    "deploy": "cars deploy now 1"
   },
   "keywords": [],
   "author": "",

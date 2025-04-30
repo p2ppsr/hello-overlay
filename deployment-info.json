@@ -24,6 +24,18 @@
         "backend",
         "frontend"
       ]
+    },
+    {
+      "name": "helloworld_overlay",
+      "provider": "CARS",
+      "CARSCloudURL": "https://cars.babbage.systems",
+      "projectID": "2e97d492e90354a3a453e526cf53819c",
+      "network": "mainnet",
+      "deploy": [
+        "frontend",
+        "backend"
+      ],
+      "frontendHostingMethod": "HTTPS"
     }
   ]
 }
