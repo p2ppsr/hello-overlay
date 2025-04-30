@@ -9,7 +9,6 @@
     "start": "node ./scripts/start.js"
   },
   "dependencies": {
-    "wait-on": "^8.0.1"
   },
   "keywords": [],
   "author": "",
