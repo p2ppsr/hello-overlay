@@ -3,7 +3,11 @@ import {
   LookupService,
   LookupQuestion,
   LookupAnswer,
-  LookupFormula
+  LookupFormula,
+  AdmissionMode,
+  SpendNotificationMode,
+  OutputAdmittedByTopic,
+  OutputSpent
 } from '@bsv/overlay'
 import { HelloWorldStorage } from './HelloWorldStorage.js'
 import { Script, PushDrop, Utils } from '@bsv/sdk'
@@ -20,34 +24,27 @@ export interface HelloWorldQuery {
 
 /**
  * Implements a lookup service for the Hello‑World protocol.
- *
  * Each admitted BRC‑48 Pay‑to‑Push‑Drop output stores **exactly one** UTF‑8 field – the message.
  * This service indexes those messages so they can be queried later.
  */
 export class HelloWorldLookupService implements LookupService {
+  readonly admissionMode: AdmissionMode = 'locking-script'
+  readonly spendNotificationMode: SpendNotificationMode = 'none'
+
   constructor(public storage: HelloWorldStorage) { }
 
   /**
    * Invoked when a new output is added to the overlay.
-   * @param {string} txid - The transaction ID containing the output.
-   * @param {number} outputIndex - The index of the output in the transaction.
-   * @param {Script} outputScript - The script of the output to be processed.
-   * @param {string} topic - The topic associated with the output.
-   *
-   * @returns {Promise<void>} A promise that resolves when the processing is complete.
-   * @throws Will throw an error if there is an issue with storing the record in the storage engine.
+   * @param payload 
    */
-  async outputAdded?(
-    txid: string,
-    outputIndex: number,
-    outputScript: Script,
-    topic: string
-  ): Promise<void> {
-    if (topic !== 'tm_helloworld') return
+  async outputAdmittedByTopic(payload: OutputAdmittedByTopic): Promise<void> {
+    if (payload.mode !== 'locking-script') throw new Error('Invalid mode')
+    const { topic, lockingScript, txid, outputIndex } = payload
+    if (payload.topic !== 'tm_helloworld') throw new Error(`Invalid topic "${topic}" for this service.`)
 
     try {
       // Decode the PushDrop token
-      const result = PushDrop.decode(outputScript)
+      const result = PushDrop.decode(lockingScript)
       if (!result.fields || result.fields.length < 1) throw new Error('Invalid HelloWorld token: wrong field count')
 
       const message = Utils.toUTF8(result.fields[0])
@@ -61,21 +58,22 @@ export class HelloWorldLookupService implements LookupService {
   }
 
   /**
-   * Invoked when an indexed output is spent.
-   * @param txid - The transaction ID of the spent output
-   * @param outputIndex - The index of the spent output
-   * @param topic - The topic associated with the spent output
+   * Invoked when a UTXO is spent
+   * @param payload - The output admitted by the topic manager
    */
-  async outputSpent?(txid: string, outputIndex: number, topic: string): Promise<void> {
-    if (topic !== 'tm_helloworld') return
+  async outputSpent(payload: OutputSpent): Promise<void> {
+    if (payload.mode !== 'none') throw new Error('Invalid mode')
+    const { topic, txid, outputIndex } = payload
+    if (topic !== 'tm_helloworld') throw new Error(`Invalid topic "${topic}" for this service.`)
     await this.storage.deleteRecord(txid, outputIndex)
   }
 
   /**
-   * Invoked when an indexed output is deleted.
+   * LEGAL EVICTION: Permanently remove the referenced UTXO from all indices maintained by the Lookup Service
+   * @param txid - The transaction ID of the output to evict
+   * @param outputIndex - The index of the output to evict
    */
-  async outputDeleted?(txid: string, outputIndex: number, topic: string): Promise<void> {
-    if (topic !== 'tm_helloworld') return
+  async outputEvicted(txid: string, outputIndex: number): Promise<void> {
     await this.storage.deleteRecord(txid, outputIndex)
   }
 

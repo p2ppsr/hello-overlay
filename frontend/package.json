@@ -4,7 +4,7 @@
   "private": true,
   "license": "Open BSV License",
   "dependencies": {
-    "@bsv/sdk": "^1.4.23",
+    "@bsv/sdk": "^1.5.2",
     "@emotion/react": "^11.13.0",
     "@emotion/styled": "^11.13.0",
     "@mui/icons-material": "^5.16.4",
@@ -12,7 +12,7 @@
     "@mui/system": "^5.16.7",
     "@types/jest": "^29.5.11",
     "date-fns": "^4.1.0",
-    "hello-tokens": "^0.1.8",
+    "hello-tokens": "^0.1.10",
     "metanet-react-prompt": "^1.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
